@@ -1,0 +1,73 @@
+name: Deploy to Infomaniak hosting
+
+on:
+  push:
+    branches:
+      - main
+      - cursor/tigg3s-services-landing-page-4a3f
+  workflow_dispatch:
+
+concurrency:
+  group: infomaniak-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate deploy secrets
+        env:
+          FTP_HOST: ${{ secrets.INFOMANIAK_FTP_HOST }}
+          FTP_USER: ${{ secrets.INFOMANIAK_FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.INFOMANIAK_FTP_PASSWORD }}
+          FTP_REMOTE_DIR: ${{ secrets.INFOMANIAK_FTP_REMOTE_DIR }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in FTP_HOST FTP_USER FTP_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Missing required secret mapped to ${key}."
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Define INFOMANIAK_FTP_HOST, INFOMANIAK_FTP_USER, INFOMANIAK_FTP_PASSWORD, and optional INFOMANIAK_FTP_REMOTE_DIR."
+            exit 1
+          fi
+
+          if [ -z "${FTP_REMOTE_DIR}" ]; then
+            echo "FTP_REMOTE_DIR=/web" >> "$GITHUB_ENV"
+          else
+            echo "FTP_REMOTE_DIR=${FTP_REMOTE_DIR}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Deploy files to Infomaniak via FTPS
+        env:
+          FTP_HOST: ${{ secrets.INFOMANIAK_FTP_HOST }}
+          FTP_USER: ${{ secrets.INFOMANIAK_FTP_USER }}
+          FTP_PASSWORD: ${{ secrets.INFOMANIAK_FTP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          lftp -c "
+            set net:timeout 20;
+            set net:max-retries 3;
+            set net:reconnect-interval-base 5;
+            set ftp:passive-mode true;
+            set ftp:ssl-force true;
+            set ftp:ssl-protect-data true;
+            open -u \"${FTP_USER}\",\"${FTP_PASSWORD}\" \"${FTP_HOST}\";
+            mirror -R --delete --verbose --exclude-glob .git* --exclude-glob .github --exclude-glob README.md ./ \"${FTP_REMOTE_DIR}\";
+            bye
+          "
+
+      - name: Deployment summary
+        run: |
+          echo "Deployment completed."
+          echo "Published URL: https://tigg3s.ch/"

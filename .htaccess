@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Force HTTPS and canonical apex hostname for the portal.
+RewriteCond %{HTTPS} !=on [OR]
+RewriteCond %{HTTP_HOST} ^www\.tigg3s\.ch$ [NC]
+RewriteRule ^ https://tigg3s.ch%{REQUEST_URI} [L,R=301]
+
+DirectoryIndex index.html
